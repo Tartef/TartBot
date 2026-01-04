@@ -6,8 +6,10 @@ Bot Discord envoyant des alertes à l'heure pile selon :
 
 Commandes :
 
-/setup --> Permet de créer une alerte
+/setup --> Permet de créer une alerte.
 
-/edit --> Permet l'edition d'alerte existante
+/edit --> Permet l'edition d'alerte existante.
 
 /status --> Status des alertes.
+
+/delete --> Suppression des alertes en vigueur.
