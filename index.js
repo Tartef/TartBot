@@ -29,6 +29,8 @@ const commands = [
     new SlashCommandBuilder()
         .setName("setup")
         .setDescription("Créer une alarme")
+
+        // REQUIRED EN PREMIER
         .addIntegerOption(o =>
             o.setName("value")
                 .setDescription("Valeur de l'intervalle")
@@ -37,13 +39,23 @@ const commands = [
         )
         .addStringOption(o =>
             o.setName("unit")
-                .setDescription("Unité")
+                .setDescription("Unité de temps")
                 .setRequired(true)
                 .addChoices(
                     { name: "Secondes", value: "seconds" },
                     { name: "Minutes", value: "minutes" },
                     { name: "Heures", value: "hours" }
                 )
+        )
+        .addChannelOption(o =>
+            o.setName("channel")
+                .setDescription("Salon d'envoi")
+                .setRequired(true)
+        )
+        .addStringOption(o =>
+            o.setName("message")
+                .setDescription("Message envoyé")
+                .setRequired(true)
         )
         .addStringOption(o =>
             o.setName("hour_type")
@@ -53,21 +65,11 @@ const commands = [
                     { name: "Heures paires", value: "even" },
                     { name: "Heures impaires", value: "odd" }
                 )
-        )
-        .addChannelOption(o =>
-            o.setName("channel")
-                .setDescription("Salon")
-                .setRequired(true)
-        )
-        .addStringOption(o =>
-            o.setName("message")
-                .setDescription("Message envoyé")
-                .setRequired(true)
         ),
 
     new SlashCommandBuilder()
         .setName("edit")
-        .setDescription("Modifier une alarme")
+        .setDescription("Modifier une alarme existante")
         .addIntegerOption(o =>
             o.setName("id")
                 .setDescription("ID de l'alarme")
@@ -75,10 +77,12 @@ const commands = [
         )
         .addIntegerOption(o =>
             o.setName("value")
+                .setDescription("Nouvelle valeur de l'intervalle")
                 .setMinValue(1)
         )
         .addStringOption(o =>
             o.setName("unit")
+                .setDescription("Nouvelle unité de temps")
                 .addChoices(
                     { name: "Secondes", value: "seconds" },
                     { name: "Minutes", value: "minutes" },
@@ -87,6 +91,7 @@ const commands = [
         )
         .addStringOption(o =>
             o.setName("hour_type")
+                .setDescription("Nouvelle contrainte d'heure")
                 .addChoices(
                     { name: "Peu importe", value: "any" },
                     { name: "Heures paires", value: "even" },
@@ -95,19 +100,25 @@ const commands = [
         )
         .addChannelOption(o =>
             o.setName("channel")
+                .setDescription("Nouveau salon")
         )
         .addStringOption(o =>
             o.setName("message")
+                .setDescription("Nouveau message")
         ),
 
     new SlashCommandBuilder()
         .setName("delete")
+        .setDescription("Supprimer une alarme")
         .addIntegerOption(o =>
-            o.setName("id").setRequired(true)
+            o.setName("id")
+                .setDescription("ID de l'alarme")
+                .setRequired(true)
         ),
 
     new SlashCommandBuilder()
         .setName("list")
+        .setDescription("Lister toutes les alarmes")
 ].map(c => c.toJSON());
 
 // ========= REGISTER =========
