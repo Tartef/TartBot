@@ -49,20 +49,56 @@ const commands = [
             o.setName("channel")
                 .setDescription("Salon")
                 .setRequired(true)
+        )
+        .addStringOption(o =>
+            o.setName("message")
+                .setDescription("Message envoyé")
+                .setRequired(true)
         ),
 
     new SlashCommandBuilder()
-        .setName("list")
-        .setDescription("Lister les alarmes"),
+        .setName("edit")
+        .setDescription("Modifier une alarme")
+        .addIntegerOption(o =>
+            o.setName("id")
+                .setDescription("ID de l'alarme")
+                .setRequired(true)
+        )
+        .addIntegerOption(o =>
+            o.setName("value")
+                .setDescription("Nouvelle valeur")
+                .setMinValue(1)
+        )
+        .addStringOption(o =>
+            o.setName("unit")
+                .setDescription("Nouvelle unité")
+                .addChoices(
+                    { name: "Secondes", value: "seconds" },
+                    { name: "Minutes", value: "minutes" },
+                    { name: "Heures", value: "hours" }
+                )
+        )
+        .addChannelOption(o =>
+            o.setName("channel")
+                .setDescription("Nouveau salon")
+        )
+        .addStringOption(o =>
+            o.setName("message")
+                .setDescription("Nouveau message")
+        ),
 
     new SlashCommandBuilder()
         .setName("delete")
         .setDescription("Supprimer une alarme")
         .addIntegerOption(o =>
             o.setName("id")
-                .setDescription("ID de l'alarme")
+                .setDescription("ID")
                 .setRequired(true)
-        )
+        ),
+
+    new SlashCommandBuilder()
+        .setName("list")
+        .setDescription("Lister les alarmes")
 ].map(c => c.toJSON());
 
 // ========= REGISTER =========
@@ -96,13 +132,54 @@ client.on("interactionCreate", async interaction => {
             id: newId,
             value: interaction.options.getInteger("value"),
             unit: interaction.options.getString("unit"),
-            channelId: interaction.options.getChannel("channel").id
+            channelId: interaction.options.getChannel("channel").id,
+            message: interaction.options.getString("message")
         });
 
         saveConfigs();
 
         return interaction.reply({
-            content: `✅ Alarme créée (ID: **${newId}**)`,
+            content: `✅ Alarme créée (ID **${newId}**)`,
+            ephemeral: true
+        });
+    }
+
+    // ===== EDIT =====
+    if (interaction.commandName === "edit") {
+        const id = interaction.options.getInteger("id");
+        const alarm = configs[guildId].find(a => a.id === id);
+
+        if (!alarm) {
+            return interaction.reply({ content: "❌ ID introuvable", ephemeral: true });
+        }
+
+        if (interaction.options.getInteger("value")) alarm.value = interaction.options.getInteger("value");
+        if (interaction.options.getString("unit")) alarm.unit = interaction.options.getString("unit");
+        if (interaction.options.getChannel("channel")) alarm.channelId = interaction.options.getChannel("channel").id;
+        if (interaction.options.getString("message")) alarm.message = interaction.options.getString("message");
+
+        saveConfigs();
+
+        return interaction.reply({
+            content: `✏️ Alarme **${id}** modifiée`,
+            ephemeral: true
+        });
+    }
+
+    // ===== DELETE =====
+    if (interaction.commandName === "delete") {
+        const id = interaction.options.getInteger("id");
+        const index = configs[guildId].findIndex(a => a.id === id);
+
+        if (index === -1) {
+            return interaction.reply({ content: "❌ ID introuvable", ephemeral: true });
+        }
+
+        configs[guildId].splice(index, 1);
+        saveConfigs();
+
+        return interaction.reply({
+            content: `🗑️ Alarme **${id}** supprimée`,
             ephemeral: true
         });
     }
@@ -110,35 +187,18 @@ client.on("interactionCreate", async interaction => {
     // ===== LIST =====
     if (interaction.commandName === "list") {
         const alarms = configs[guildId];
-
         if (!alarms.length) {
             return interaction.reply({ content: "❌ Aucune alarme", ephemeral: true });
         }
 
         const msg = alarms.map(a =>
-            `🆔 **${a.id}** → toutes les **${a.value} ${a.unit}** dans <#${a.channelId}>`
-        ).join("\n");
+            `🆔 **${a.id}**
+⏱️ ${a.value} ${a.unit}
+📢 <#${a.channelId}>
+💬 ${a.message}`
+        ).join("\n\n");
 
         return interaction.reply({ content: msg, ephemeral: true });
-    }
-
-    // ===== DELETE =====
-    if (interaction.commandName === "delete") {
-        const id = interaction.options.getInteger("id");
-        const alarms = configs[guildId];
-
-        const index = alarms.findIndex(a => a.id === id);
-        if (index === -1) {
-            return interaction.reply({ content: "❌ ID introuvable", ephemeral: true });
-        }
-
-        alarms.splice(index, 1);
-        saveConfigs();
-
-        return interaction.reply({
-            content: `🗑️ Alarme **${id}** supprimée`,
-            ephemeral: true
-        });
     }
 });
 
@@ -161,10 +221,10 @@ function startScheduler() {
                     const channel = await client.channels.fetch(alarm.channelId);
                     if (channel?.isTextBased()) {
                         await channel.send({
-                            content: "@everyone ⏰ C'est l'heure du $p !",
-                            allowedMentions: { parse: ["everyone"] }
+                            content: alarm.message,
+                            allowedMentions: { parse: ["everyone", "roles"] }
                         });
-                        console.log(`✅ Alarme ${alarm.id} envoyée (${guildId})`);
+                        console.log(`✅ Alarme ${alarm.id} envoyée`);
                     }
                 } catch (e) {
                     console.error("❌ Envoi échoué :", e.message);
