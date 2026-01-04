@@ -1,7 +1,13 @@
-# Discord Alert Bot
+# Discord Hourly Alert Bot
 
-Bot Discord pour envoyer des alertes configurables dans plusieurs serveurs.
+Bot Discord envoyant des alertes à l'heure pile selon :
+- heures paires
+- heures impaires
 
-## Commandes
-/setup interval channel -> configurer intervalle + salon
-/status -> afficher la configuration
+Commandes :
+
+/setup --> Permet de créer une alerte
+
+/edit --> Permet l'edition d'alerte existante
+
+/status --> Status des alertes.

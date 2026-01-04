@@ -1,73 +1,120 @@
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, TextChannel } = require("discord.js");
-const { DateTime } = require("luxon");
 require("dotenv").config();
 
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require("discord.js");
+const { DateTime } = require("luxon");
+const fs = require("fs");
+
+// ================= CONFIG =================
 const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
-console.log("token:",TOKEN, "id:",CLIENT_ID);
+const CONFIG_FILE = "./config.json";
+const TIMEZONE = "Europe/Paris";
 
-const configs = {};
+// ================ LOAD CONFIG =============
+let configs = {};
+if (fs.existsSync(CONFIG_FILE)) {
+    configs = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"));
+}
 
+// Sauvegarde persistante
+function saveConfigs() {
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(configs, null, 2));
+}
+
+// ================= CLIENT =================
 const client = new Client({
     intents: [GatewayIntentBits.Guilds]
 });
 
+// ============== SLASH COMMANDS ============
 const commands = [
     new SlashCommandBuilder()
         .setName("setup")
-        .setDescription("Configurer les alertes du bot")
-        .addIntegerOption(option =>
-            option
-                .setName("interval")
-                .setDescription("Intervalle entre deux alertes (en heures)")
-                .setMinValue(1)
-                .setMaxValue(24)
+        .setDescription("Configurer les alertes")
+        .addStringOption(opt =>
+            opt.setName("type")
+                .setDescription("Heures paires ou impaires")
                 .setRequired(true)
+                .addChoices(
+                    { name: "Heures paires", value: "even" },
+                    { name: "Heures impaires", value: "odd" }
+                )
         )
-        .addChannelOption(option =>
-            option
-                .setName("channel")
-                .setDescription("Salon où envoyer les alertes")
+        .addChannelOption(opt =>
+            opt.setName("channel")
+                .setDescription("Salon d'envoi")
                 .setRequired(true)
         ),
+
+    new SlashCommandBuilder()
+        .setName("edit")
+        .setDescription("Modifier la configuration")
+        .addStringOption(opt =>
+            opt.setName("type")
+                .setDescription("Heures paires ou impaires")
+                .addChoices(
+                    { name: "Heures paires", value: "even" },
+                    { name: "Heures impaires", value: "odd" }
+                )
+        )
+        .addChannelOption(opt =>
+            opt.setName("channel")
+                .setDescription("Nouveau salon")
+        ),
+
     new SlashCommandBuilder()
         .setName("status")
-        .setDescription("Voir la configuration actuelle du serveur")
+        .setDescription("Voir la configuration actuelle")
 ].map(cmd => cmd.toJSON());
 
+// Enregistrement global
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 (async () => {
-    try {
-        console.log("⏳ Enregistrement des slash commands...");
-        await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-        console.log("✅ Slash commands enregistrées !");
-    } catch (err) {
-        console.error("❌ Erreur lors de l'enregistrement des slash commands :", err);
-    }
+    await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
+    console.log("✅ Slash commands enregistrées");
 })();
 
+// ================= READY ==================
 client.once("ready", () => {
     console.log(`🤖 Bot connecté : ${client.user.tag}`);
-    startLoop();
+    startScheduler();
 });
 
+// ============ COMMAND HANDLING ============
 client.on("interactionCreate", async interaction => {
     if (!interaction.isChatInputCommand()) return;
-    if (!interaction.guildId) return;
 
     const guildId = interaction.guildId;
+    console.log(`📥 Commande /${interaction.commandName} par ${interaction.user.tag}`);
 
     if (interaction.commandName === "setup") {
-        const interval = interaction.options.getInteger("interval");
-        const channel = interaction.options.getChannel("channel");
-
         configs[guildId] = {
-            intervalHours: interval,
-            channelId: channel.id
+            type: interaction.options.getString("type"),
+            channelId: interaction.options.getChannel("channel").id
         };
+        saveConfigs();
 
         await interaction.reply({
-            content: `✅ Configuration enregistrée pour ce serveur\n⏱ Intervalle : ${interval}h\n📢 Salon : <#${channel.id}>`,
+            content: "✅ Configuration enregistrée",
+            ephemeral: true
+        });
+    }
+
+    if (interaction.commandName === "edit") {
+        if (!configs[guildId]) {
+            return interaction.reply({ content: "❌ Aucune config existante", ephemeral: true });
+        }
+
+        const type = interaction.options.getString("type");
+        const channel = interaction.options.getChannel("channel");
+
+        if (type) configs[guildId].type = type;
+        if (channel) configs[guildId].channelId = channel.id;
+
+        saveConfigs();
+
+        await interaction.reply({
+            content: "✏️ Configuration mise à jour",
             ephemeral: true
         });
     }
@@ -75,44 +122,46 @@ client.on("interactionCreate", async interaction => {
     if (interaction.commandName === "status") {
         const cfg = configs[guildId];
         if (!cfg) {
-            await interaction.reply({
-                content: "❌ Aucune configuration trouvée pour ce serveur.",
-                ephemeral: true
-            });
-        } else {
-            await interaction.reply({
-                content: `⚙️ Configuration actuelle :\n⏱ Intervalle : ${cfg.intervalHours}h\n📢 Salon : <#${cfg.channelId}>`,
-                ephemeral: true
-            });
+            return interaction.reply({ content: "❌ Pas de configuration", ephemeral: true });
         }
+
+        await interaction.reply({
+            content: `⚙️ Type : ${cfg.type === "even" ? "Heures paires" : "Heures impaires"}\n📢 Salon : <#${cfg.channelId}>`,
+            ephemeral: true
+        });
     }
 });
 
-function startLoop() {
+// ============ SCHEDULER (PILE À L'HEURE) ============
+function startScheduler() {
     setInterval(async () => {
-        const now = DateTime.now().setZone("Europe/Paris");
+        const now = DateTime.now().setZone(TIMEZONE);
 
-        if (now.minute !== 0) return;
+        // pile à l'heure
+        if (now.minute !== 0 || now.second !== 0) return;
 
         for (const guildId in configs) {
             const cfg = configs[guildId];
+            const hour = now.hour;
 
-            if (now.hour % cfg.intervalHours !== 0) continue;
+            if (cfg.type === "even" && hour % 2 !== 0) continue;
+            if (cfg.type === "odd" && hour % 2 === 0) continue;
 
             try {
                 const channel = await client.channels.fetch(cfg.channelId);
-
-                if (channel && channel.isTextBased()) {
+                if (channel?.isTextBased()) {
                     await channel.send({
-                        content: `@everyone ⏰ C'est l'heure du $p !`,
+                        content: "@everyone ⏰ C'est l'heure du $p !",
                         allowedMentions: { parse: ["everyone"] }
                     });
+                    console.log(`✅ Message envoyé (${guildId}) à ${now.toFormat("HH:mm:ss")}`);
                 }
             } catch (err) {
-                console.error(`Erreur envoi message (${guildId}):`, err);
+                console.error("❌ Erreur envoi :", err.message);
             }
         }
-    }, 60 * 1000);
+    }, 1000);
 }
 
+// ================= LOGIN =================
 client.login(TOKEN);
