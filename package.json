@@ -19,6 +19,7 @@
   "homepage": "https://github.com/Tartef/TartBot#readme",
   "dependencies": {
     "discord.js": "^14.25.1",
+    "dotenv": "^17.2.3",
     "luxon": "^3.7.2"
   }
 }

@@ -1,8 +1,10 @@
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, TextChannel } = require("discord.js");
 const { DateTime } = require("luxon");
+require("dotenv").config();
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
+console.log("token:",TOKEN, "id:",CLIENT_ID);
 
 const configs = {};
 
