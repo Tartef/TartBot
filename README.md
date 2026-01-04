@@ -13,3 +13,5 @@ Commandes :
 /status --> Status des alertes.
 
 /delete --> Suppression des alertes en vigueur.
+
+/list --> Affiche la liste des alertes permet de voir les id de celles a supprimer
