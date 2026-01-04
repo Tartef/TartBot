@@ -29,15 +29,15 @@ const commands = [
     new SlashCommandBuilder()
         .setName("setup")
         .setDescription("Créer une alarme")
-        .addIntegerOption(opt =>
-            opt.setName("value")
+        .addIntegerOption(o =>
+            o.setName("value")
                 .setDescription("Valeur de l'intervalle")
                 .setRequired(true)
                 .setMinValue(1)
         )
-        .addStringOption(opt =>
-            opt.setName("unit")
-                .setDescription("Unité de temps")
+        .addStringOption(o =>
+            o.setName("unit")
+                .setDescription("Unité")
                 .setRequired(true)
                 .addChoices(
                     { name: "Secondes", value: "seconds" },
@@ -45,41 +45,24 @@ const commands = [
                     { name: "Heures", value: "hours" }
                 )
         )
-        .addChannelOption(opt =>
-            opt.setName("channel")
-                .setDescription("Salon d'envoi")
+        .addChannelOption(o =>
+            o.setName("channel")
+                .setDescription("Salon")
                 .setRequired(true)
         ),
 
     new SlashCommandBuilder()
-        .setName("edit")
-        .setDescription("Modifier l'alarme")
-        .addIntegerOption(opt =>
-            opt.setName("value")
-                .setDescription("Nouvelle valeur")
-                .setMinValue(1)
-        )
-        .addStringOption(opt =>
-            opt.setName("unit")
-                .setDescription("Nouvelle unité")
-                .addChoices(
-                    { name: "Secondes", value: "seconds" },
-                    { name: "Minutes", value: "minutes" },
-                    { name: "Heures", value: "hours" }
-                )
-        )
-        .addChannelOption(opt =>
-            opt.setName("channel")
-                .setDescription("Nouveau salon")
-        ),
+        .setName("list")
+        .setDescription("Lister les alarmes"),
 
     new SlashCommandBuilder()
         .setName("delete")
-        .setDescription("Supprimer l'alarme"),
-
-    new SlashCommandBuilder()
-        .setName("status")
-        .setDescription("Voir l'alarme actuelle")
+        .setDescription("Supprimer une alarme")
+        .addIntegerOption(o =>
+            o.setName("id")
+                .setDescription("ID de l'alarme")
+                .setRequired(true)
+        )
 ].map(c => c.toJSON());
 
 // ========= REGISTER =========
@@ -98,56 +81,62 @@ client.once("ready", () => {
 // ========= INTERACTIONS =========
 client.on("interactionCreate", async interaction => {
     if (!interaction.isChatInputCommand()) return;
-    const guildId = interaction.guildId;
 
+    const guildId = interaction.guildId;
     console.log(`📥 /${interaction.commandName} (${guildId})`);
 
+    if (!configs[guildId]) configs[guildId] = [];
+
+    // ===== SETUP =====
     if (interaction.commandName === "setup") {
-        configs[guildId] = {
+        const alarms = configs[guildId];
+        const newId = alarms.length ? Math.max(...alarms.map(a => a.id)) + 1 : 1;
+
+        alarms.push({
+            id: newId,
             value: interaction.options.getInteger("value"),
             unit: interaction.options.getString("unit"),
             channelId: interaction.options.getChannel("channel").id
-        };
+        });
+
         saveConfigs();
-        return interaction.reply({ content: "✅ Alarme créée", ephemeral: true });
+
+        return interaction.reply({
+            content: `✅ Alarme créée (ID: **${newId}**)`,
+            ephemeral: true
+        });
     }
 
-    if (interaction.commandName === "edit") {
-        if (!configs[guildId]) {
+    // ===== LIST =====
+    if (interaction.commandName === "list") {
+        const alarms = configs[guildId];
+
+        if (!alarms.length) {
             return interaction.reply({ content: "❌ Aucune alarme", ephemeral: true });
         }
 
-        const cfg = configs[guildId];
-        const value = interaction.options.getInteger("value");
-        const unit = interaction.options.getString("unit");
-        const channel = interaction.options.getChannel("channel");
+        const msg = alarms.map(a =>
+            `🆔 **${a.id}** → toutes les **${a.value} ${a.unit}** dans <#${a.channelId}>`
+        ).join("\n");
 
-        if (value) cfg.value = value;
-        if (unit) cfg.unit = unit;
-        if (channel) cfg.channelId = channel.id;
-
-        saveConfigs();
-        return interaction.reply({ content: "✏️ Alarme modifiée", ephemeral: true });
+        return interaction.reply({ content: msg, ephemeral: true });
     }
 
+    // ===== DELETE =====
     if (interaction.commandName === "delete") {
-        if (!configs[guildId]) {
-            return interaction.reply({ content: "❌ Aucune alarme à supprimer", ephemeral: true });
+        const id = interaction.options.getInteger("id");
+        const alarms = configs[guildId];
+
+        const index = alarms.findIndex(a => a.id === id);
+        if (index === -1) {
+            return interaction.reply({ content: "❌ ID introuvable", ephemeral: true });
         }
 
-        delete configs[guildId];
+        alarms.splice(index, 1);
         saveConfigs();
-        return interaction.reply({ content: "🗑️ Alarme supprimée", ephemeral: true });
-    }
-
-    if (interaction.commandName === "status") {
-        const cfg = configs[guildId];
-        if (!cfg) {
-            return interaction.reply({ content: "❌ Aucune alarme configurée", ephemeral: true });
-        }
 
         return interaction.reply({
-            content: `⏱️ Toutes les ${cfg.value} ${cfg.unit}\n📢 Salon : <#${cfg.channelId}>`,
+            content: `🗑️ Alarme **${id}** supprimée`,
             ephemeral: true
         });
     }
@@ -159,26 +148,27 @@ function startScheduler() {
         const now = DateTime.now().setZone(TIMEZONE);
 
         for (const guildId in configs) {
-            const cfg = configs[guildId];
-            let shouldSend = false;
+            for (const alarm of configs[guildId]) {
+                let send = false;
 
-            if (cfg.unit === "seconds" && now.second % cfg.value === 0) shouldSend = true;
-            if (cfg.unit === "minutes" && now.second === 0 && now.minute % cfg.value === 0) shouldSend = true;
-            if (cfg.unit === "hours" && now.minute === 0 && now.second === 0 && now.hour % cfg.value === 0) shouldSend = true;
+                if (alarm.unit === "seconds" && now.second % alarm.value === 0) send = true;
+                if (alarm.unit === "minutes" && now.second === 0 && now.minute % alarm.value === 0) send = true;
+                if (alarm.unit === "hours" && now.minute === 0 && now.second === 0 && now.hour % alarm.value === 0) send = true;
 
-            if (!shouldSend) continue;
+                if (!send) continue;
 
-            try {
-                const channel = await client.channels.fetch(cfg.channelId);
-                if (channel?.isTextBased()) {
-                    await channel.send({
-                        content: "@everyone ⏰ C'est l'heure du $p !",
-                        allowedMentions: { parse: ["everyone"] }
-                    });
-                    console.log(`✅ Message envoyé (${guildId})`);
+                try {
+                    const channel = await client.channels.fetch(alarm.channelId);
+                    if (channel?.isTextBased()) {
+                        await channel.send({
+                            content: "@everyone ⏰ C'est l'heure du $p !",
+                            allowedMentions: { parse: ["everyone"] }
+                        });
+                        console.log(`✅ Alarme ${alarm.id} envoyée (${guildId})`);
+                    }
+                } catch (e) {
+                    console.error("❌ Envoi échoué :", e.message);
                 }
-            } catch (err) {
-                console.error("❌ Erreur :", err.message);
             }
         }
     }, 1000);
