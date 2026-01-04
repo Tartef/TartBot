@@ -1,0 +1,24 @@
+{
+  "name": "tartebot",
+  "version": "1.0.0",
+  "description": "Bot permettant de générer des notifications a intervalles",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "Tartef",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Tartef/TartBot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Tartef/TartBot/issues"
+  },
+  "homepage": "https://github.com/Tartef/TartBot#readme",
+  "dependencies": {
+    "discord.js": "^14.25.1",
+    "luxon": "^3.7.2"
+  }
+}
