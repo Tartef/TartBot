@@ -1,6 +1,13 @@
 require("dotenv").config();
 
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require("discord.js");
+const {
+    Client,
+    GatewayIntentBits,
+    REST,
+    Routes,
+    SlashCommandBuilder
+} = require("discord.js");
+
 const { DateTime } = require("luxon");
 const fs = require("fs");
 
@@ -9,37 +16,25 @@ const CLIENT_ID = process.env.CLIENT_ID;
 const CONFIG_FILE = "./config.json";
 const TIMEZONE = "Europe/Paris";
 
-// ========= LOAD CONFIG =========
 let configs = {};
 if (fs.existsSync(CONFIG_FILE)) {
     configs = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"));
 }
 
-// Migration ancienne config hourType → parity
-for (const guildId in configs) {
-    for (const alarm of configs[guildId]) {
-        if (!alarm.parity && alarm.hourType) {
-            alarm.parity = alarm.hourType;
-            delete alarm.hourType;
-        }
-    }
-}
-fs.writeFileSync(CONFIG_FILE, JSON.stringify(configs, null, 2));
-
 function saveConfigs() {
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(configs, null, 2));
 }
 
-// ========= CLIENT =========
 const client = new Client({
     intents: [GatewayIntentBits.Guilds]
 });
 
-// ========= SLASH COMMANDS =========
 const commands = [
     new SlashCommandBuilder()
         .setName("setup")
         .setDescription("Créer une alarme")
+
+        // ===== REQUIRED D'ABORD =====
         .addIntegerOption(o =>
             o.setName("value")
                 .setDescription("Valeur de l'intervalle")
@@ -66,19 +61,21 @@ const commands = [
                 .setDescription("Message envoyé")
                 .setRequired(true)
         )
+
+        // ===== OPTIONAL À LA FIN =====
         .addStringOption(o =>
             o.setName("parity")
-                .setDescription("Parité de l'unité de temps")
+                .setDescription("Pair / impair (optionnel)")
                 .addChoices(
                     { name: "Peu importe", value: "any" },
-                    { name: "Valeurs paires", value: "even" },
-                    { name: "Valeurs impaires", value: "odd" }
+                    { name: "Pair", value: "even" },
+                    { name: "Impair", value: "odd" }
                 )
         ),
 
     new SlashCommandBuilder()
         .setName("edit")
-        .setDescription("Modifier une alarme existante")
+        .setDescription("Modifier une alarme")
         .addIntegerOption(o =>
             o.setName("id")
                 .setDescription("ID de l'alarme")
@@ -86,12 +83,12 @@ const commands = [
         )
         .addIntegerOption(o =>
             o.setName("value")
-                .setDescription("Nouvelle valeur de l'intervalle")
+                .setDescription("Nouvelle valeur")
                 .setMinValue(1)
         )
         .addStringOption(o =>
             o.setName("unit")
-                .setDescription("Nouvelle unité de temps")
+                .setDescription("Nouvelle unité")
                 .addChoices(
                     { name: "Secondes", value: "seconds" },
                     { name: "Minutes", value: "minutes" },
@@ -103,8 +100,8 @@ const commands = [
                 .setDescription("Nouvelle parité")
                 .addChoices(
                     { name: "Peu importe", value: "any" },
-                    { name: "Valeurs paires", value: "even" },
-                    { name: "Valeurs impaires", value: "odd" }
+                    { name: "Pair", value: "even" },
+                    { name: "Impair", value: "odd" }
                 )
         )
         .addChannelOption(o =>
@@ -127,27 +124,27 @@ const commands = [
 
     new SlashCommandBuilder()
         .setName("list")
-        .setDescription("Lister toutes les alarmes")
+        .setDescription("Lister les alarmes")
 ].map(c => c.toJSON());
 
-// ========= REGISTER =========
+// ================= REGISTER COMMANDS =================
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 (async () => {
     await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
     console.log("✅ Slash commands enregistrées");
 })();
 
-// ========= READY =========
+// ================= READY =================
 client.once("ready", () => {
-    console.log(`🤖 Connecté : ${client.user.tag}`);
+    console.log(`🤖 Connecté en tant que ${client.user.tag}`);
     startScheduler();
 });
 
-// ========= INTERACTIONS =========
+// ================= INTERACTIONS =================
 client.on("interactionCreate", async interaction => {
     if (!interaction.isChatInputCommand()) return;
-    const guildId = interaction.guildId;
 
+    const guildId = interaction.guildId;
     if (!configs[guildId]) configs[guildId] = [];
 
     // ===== SETUP =====
@@ -155,14 +152,18 @@ client.on("interactionCreate", async interaction => {
         const alarms = configs[guildId];
         const newId = alarms.length ? Math.max(...alarms.map(a => a.id)) + 1 : 1;
 
+        const value = interaction.options.getInteger("value");
+        const unit = interaction.options.getString("unit");
+        const parity = interaction.options.getString("parity") ?? "any";
+
         alarms.push({
             id: newId,
-            value: interaction.options.getInteger("value"),
-            unit: interaction.options.getString("unit"),
-            parity: interaction.options.getString("parity") ?? "any",
+            value,
+            unit,
+            parity,
             channelId: interaction.options.getChannel("channel").id,
             message: interaction.options.getString("message"),
-            lastSent: null
+            nextTrigger: Date.now() + getIntervalMs({ value, unit })
         });
 
         saveConfigs();
@@ -205,7 +206,7 @@ client.on("interactionCreate", async interaction => {
         const msg = configs[guildId].map(a =>
             `🆔 **${a.id}**
 ⏱️ ${a.value} ${a.unit}
-🔢 Parité : ${a.parity === "even" ? "Paire" : a.parity === "odd" ? "Impaire" : "Aucune"}
+🔁 Parité : ${a.parity}
 📢 <#${a.channelId}>
 💬 ${a.message}`
         ).join("\n\n");
@@ -214,55 +215,28 @@ client.on("interactionCreate", async interaction => {
     }
 });
 
-// ========= SCHEDULER =========
+// ================= SCHEDULER =================
 function startScheduler() {
     setInterval(async () => {
-        const now = DateTime.now().setZone(TIMEZONE);
+        const now = Date.now();
 
         for (const guildId in configs) {
             for (const alarm of configs[guildId]) {
 
-                let currentValue;
-                let unit;
+                if (now < alarm.nextTrigger) continue;
 
-                // 1️⃣ Déterminer la valeur actuelle
-                if (alarm.unit === "seconds") {
-                    currentValue = now.second;
-                    unit = "seconds";
-                } else if (alarm.unit === "minutes") {
-                    if (now.second !== 0) continue;
-                    currentValue = now.minute;
-                    unit = "minutes";
-                } else if (alarm.unit === "hours") {
-                    if (now.minute !== 0 || now.second !== 0) continue;
-                    currentValue = now.hour;
-                    unit = "hours";
-                } else {
-                    continue;
-                }
+                const dt = DateTime.fromMillis(now).setZone(TIMEZONE);
 
-                // 2️⃣ Filtre de parité
+                // ===== PARITY CHECK =====
                 if (
-                    (alarm.parity === "even" && currentValue % 2 !== 0) ||
-                    (alarm.parity === "odd" && currentValue % 2 !== 1)
+                    alarm.parity === "even" && dt.hour % 2 !== 0 ||
+                    alarm.parity === "odd" && dt.hour % 2 !== 1
                 ) {
+                    alarm.nextTrigger += getIntervalMs(alarm);
+                    saveConfigs();
                     continue;
                 }
 
-                // 3️⃣ Gestion de l’intervalle
-                let shouldSend = false;
-
-                if (!alarm.lastSent) {
-                    shouldSend = true;
-                } else {
-                    const last = DateTime.fromMillis(alarm.lastSent).setZone(TIMEZONE);
-                    const diff = now.diff(last, unit)[unit];
-                    if (diff >= alarm.value) shouldSend = true;
-                }
-
-                if (!shouldSend) continue;
-
-                // 4️⃣ Envoi
                 try {
                     const channel = await client.channels.fetch(alarm.channelId);
                     if (channel?.isTextBased()) {
@@ -270,16 +244,26 @@ function startScheduler() {
                             content: alarm.message,
                             allowedMentions: { parse: ["everyone", "roles"] }
                         });
-
-                        alarm.lastSent = now.toMillis();
-                        saveConfigs();
                     }
-                } catch (err) {
-                    console.error("Erreur envoi alarme:", err.message);
+                } catch (e) {
+                    console.error("Erreur envoi message:", e.message);
                 }
+
+                alarm.nextTrigger += getIntervalMs(alarm);
+                saveConfigs();
             }
         }
     }, 1000);
 }
 
+// ================= UTILS =================
+function getIntervalMs(alarm) {
+    switch (alarm.unit) {
+        case "seconds": return alarm.value * 1000;
+        case "minutes": return alarm.value * 60 * 1000;
+        case "hours":   return alarm.value * 60 * 60 * 1000;
+    }
+}
+
+// ================= LOGIN =================
 client.login(TOKEN);
