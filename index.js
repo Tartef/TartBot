@@ -15,6 +15,17 @@ if (fs.existsSync(CONFIG_FILE)) {
     configs = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"));
 }
 
+// Migration ancienne config hourType → parity
+for (const guildId in configs) {
+    for (const alarm of configs[guildId]) {
+        if (!alarm.parity && alarm.hourType) {
+            alarm.parity = alarm.hourType;
+            delete alarm.hourType;
+        }
+    }
+}
+fs.writeFileSync(CONFIG_FILE, JSON.stringify(configs, null, 2));
+
 function saveConfigs() {
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(configs, null, 2));
 }
@@ -29,8 +40,6 @@ const commands = [
     new SlashCommandBuilder()
         .setName("setup")
         .setDescription("Créer une alarme")
-
-        // REQUIRED EN PREMIER
         .addIntegerOption(o =>
             o.setName("value")
                 .setDescription("Valeur de l'intervalle")
@@ -58,12 +67,12 @@ const commands = [
                 .setRequired(true)
         )
         .addStringOption(o =>
-            o.setName("hour_type")
-                .setDescription("Heures paires ou impaires (heures uniquement)")
+            o.setName("parity")
+                .setDescription("Parité de l'unité de temps")
                 .addChoices(
                     { name: "Peu importe", value: "any" },
-                    { name: "Heures paires", value: "even" },
-                    { name: "Heures impaires", value: "odd" }
+                    { name: "Valeurs paires", value: "even" },
+                    { name: "Valeurs impaires", value: "odd" }
                 )
         ),
 
@@ -90,12 +99,12 @@ const commands = [
                 )
         )
         .addStringOption(o =>
-            o.setName("hour_type")
-                .setDescription("Nouvelle contrainte d'heure")
+            o.setName("parity")
+                .setDescription("Nouvelle parité")
                 .addChoices(
                     { name: "Peu importe", value: "any" },
-                    { name: "Heures paires", value: "even" },
-                    { name: "Heures impaires", value: "odd" }
+                    { name: "Valeurs paires", value: "even" },
+                    { name: "Valeurs impaires", value: "odd" }
                 )
         )
         .addChannelOption(o =>
@@ -150,7 +159,7 @@ client.on("interactionCreate", async interaction => {
             id: newId,
             value: interaction.options.getInteger("value"),
             unit: interaction.options.getString("unit"),
-            hourType: interaction.options.getString("hour_type") ?? "any",
+            parity: interaction.options.getString("parity") ?? "any",
             channelId: interaction.options.getChannel("channel").id,
             message: interaction.options.getString("message"),
             lastSent: null
@@ -168,7 +177,7 @@ client.on("interactionCreate", async interaction => {
 
         if (interaction.options.getInteger("value")) alarm.value = interaction.options.getInteger("value");
         if (interaction.options.getString("unit")) alarm.unit = interaction.options.getString("unit");
-        if (interaction.options.getString("hour_type")) alarm.hourType = interaction.options.getString("hour_type");
+        if (interaction.options.getString("parity")) alarm.parity = interaction.options.getString("parity");
         if (interaction.options.getChannel("channel")) alarm.channelId = interaction.options.getChannel("channel").id;
         if (interaction.options.getString("message")) alarm.message = interaction.options.getString("message");
 
@@ -196,7 +205,7 @@ client.on("interactionCreate", async interaction => {
         const msg = configs[guildId].map(a =>
             `🆔 **${a.id}**
 ⏱️ ${a.value} ${a.unit}
-🕒 Heures : ${a.hourType === "even" ? "Paires" : a.hourType === "odd" ? "Impaires" : "Toutes"}
+🔢 Parité : ${a.parity === "even" ? "Paire" : a.parity === "odd" ? "Impaire" : "Aucune"}
 📢 <#${a.channelId}>
 💬 ${a.message}`
         ).join("\n\n");
@@ -216,7 +225,7 @@ function startScheduler() {
                 let currentValue;
                 let unit;
 
-                // 1️⃣ Déterminer l’unité et la valeur courante
+                // 1️⃣ Déterminer la valeur actuelle
                 if (alarm.unit === "seconds") {
                     currentValue = now.second;
                     unit = "seconds";
@@ -232,15 +241,15 @@ function startScheduler() {
                     continue;
                 }
 
-                // 2️⃣ Filtre pair / impair (GÉNÉRIQUE)
+                // 2️⃣ Filtre de parité
                 if (
-                    (alarm.hourType === "even" && currentValue % 2 !== 0) ||
-                    (alarm.hourType === "odd" && currentValue % 2 !== 1)
+                    (alarm.parity === "even" && currentValue % 2 !== 0) ||
+                    (alarm.parity === "odd" && currentValue % 2 !== 1)
                 ) {
                     continue;
                 }
 
-                // 3️⃣ Gestion de l’intervalle (value)
+                // 3️⃣ Gestion de l’intervalle
                 let shouldSend = false;
 
                 if (!alarm.lastSent) {
