@@ -215,15 +215,24 @@ function startScheduler() {
 
                 if (alarm.unit === "seconds" && now.second % alarm.value === 0) send = true;
                 if (alarm.unit === "minutes" && now.second === 0 && now.minute % alarm.value === 0) send = true;
-                if (alarm.unit === "hours" && now.minute === 0 && now.second === 0 && now.hour % alarm.value === 0) {
+                if (alarm.unit === "hours" && now.minute === 0 && now.second === 0) {
+
                     if (
-                        alarm.hourType === "any" ||
-                        (alarm.hourType === "even" && now.hour % 2 === 0) ||
-                        (alarm.hourType === "odd" && now.hour % 2 === 1)
+                        alarm.hourType === "even" && now.hour % 2 !== 0 ||
+                        alarm.hourType === "odd" && now.hour % 2 !== 1
                     ) {
+                        continue;
+                    }
+
+                    if (!alarm.lastSent) {
                         send = true;
+                    } else {
+                        const last = DateTime.fromMillis(alarm.lastSent).setZone(TIMEZONE);
+                        const diff = now.diff(last, "hours").hours;
+                        if (diff >= alarm.value) send = true;
                     }
                 }
+
 
                 if (!send) continue;
 
