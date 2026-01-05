@@ -215,7 +215,6 @@ client.on("interactionCreate", async interaction => {
     }
 });
 
-// ================= SCHEDULER =================
 function startScheduler() {
     setInterval(async () => {
         const now = Date.now();
@@ -225,15 +224,16 @@ function startScheduler() {
 
                 if (now < alarm.nextTrigger) continue;
 
+                const intervalMs = getIntervalMs(alarm);
+                alarm.nextTrigger = alarm.nextTrigger + intervalMs;
+                saveConfigs();
+
                 const dt = DateTime.fromMillis(now).setZone(TIMEZONE);
 
-                // ===== PARITY CHECK =====
                 if (
                     alarm.parity === "even" && dt.hour % 2 !== 0 ||
                     alarm.parity === "odd" && dt.hour % 2 !== 1
                 ) {
-                    alarm.nextTrigger += getIntervalMs(alarm);
-                    saveConfigs();
                     continue;
                 }
 
@@ -248,9 +248,6 @@ function startScheduler() {
                 } catch (e) {
                     console.error("Erreur envoi message:", e.message);
                 }
-
-                alarm.nextTrigger += getIntervalMs(alarm);
-                saveConfigs();
             }
         }
     }, 1000);
