@@ -152,7 +152,8 @@ client.on("interactionCreate", async interaction => {
             unit: interaction.options.getString("unit"),
             hourType: interaction.options.getString("hour_type") ?? "any",
             channelId: interaction.options.getChannel("channel").id,
-            message: interaction.options.getString("message")
+            message: interaction.options.getString("message"),
+            lastSent: null
         });
 
         saveConfigs();
@@ -211,31 +212,48 @@ function startScheduler() {
 
         for (const guildId in configs) {
             for (const alarm of configs[guildId]) {
-                let send = false;
 
-                if (alarm.unit === "seconds" && now.second % alarm.value === 0) send = true;
-                if (alarm.unit === "minutes" && now.second === 0 && now.minute % alarm.value === 0) send = true;
-                if (alarm.unit === "hours" && now.minute === 0 && now.second === 0) {
+                let currentValue;
+                let unit;
 
-                    if (
-                        alarm.hourType === "even" && now.hour % 2 !== 0 ||
-                        alarm.hourType === "odd" && now.hour % 2 !== 1
-                    ) {
-                        continue;
-                    }
-
-                    if (!alarm.lastSent) {
-                        send = true;
-                    } else {
-                        const last = DateTime.fromMillis(alarm.lastSent).setZone(TIMEZONE);
-                        const diff = now.diff(last, "hours").hours;
-                        if (diff >= alarm.value) send = true;
-                    }
+                // 1️⃣ Déterminer l’unité et la valeur courante
+                if (alarm.unit === "seconds") {
+                    currentValue = now.second;
+                    unit = "seconds";
+                } else if (alarm.unit === "minutes") {
+                    if (now.second !== 0) continue;
+                    currentValue = now.minute;
+                    unit = "minutes";
+                } else if (alarm.unit === "hours") {
+                    if (now.minute !== 0 || now.second !== 0) continue;
+                    currentValue = now.hour;
+                    unit = "hours";
+                } else {
+                    continue;
                 }
 
+                // 2️⃣ Filtre pair / impair (GÉNÉRIQUE)
+                if (
+                    (alarm.hourType === "even" && currentValue % 2 !== 0) ||
+                    (alarm.hourType === "odd" && currentValue % 2 !== 1)
+                ) {
+                    continue;
+                }
 
-                if (!send) continue;
+                // 3️⃣ Gestion de l’intervalle (value)
+                let shouldSend = false;
 
+                if (!alarm.lastSent) {
+                    shouldSend = true;
+                } else {
+                    const last = DateTime.fromMillis(alarm.lastSent).setZone(TIMEZONE);
+                    const diff = now.diff(last, unit)[unit];
+                    if (diff >= alarm.value) shouldSend = true;
+                }
+
+                if (!shouldSend) continue;
+
+                // 4️⃣ Envoi
                 try {
                     const channel = await client.channels.fetch(alarm.channelId);
                     if (channel?.isTextBased()) {
@@ -243,8 +261,13 @@ function startScheduler() {
                             content: alarm.message,
                             allowedMentions: { parse: ["everyone", "roles"] }
                         });
+
+                        alarm.lastSent = now.toMillis();
+                        saveConfigs();
                     }
-                } catch {}
+                } catch (err) {
+                    console.error("Erreur envoi alarme:", err.message);
+                }
             }
         }
     }, 1000);
