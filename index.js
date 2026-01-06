@@ -163,7 +163,6 @@ client.on("interactionCreate", async interaction => {
             parity,
             channelId: interaction.options.getChannel("channel").id,
             message: interaction.options.getString("message"),
-            nextTrigger: Date.now() + getIntervalMs({ value, unit })
         });
 
         saveConfigs();
@@ -215,28 +214,60 @@ client.on("interactionCreate", async interaction => {
     }
 });
 
+function getParityValue(alarm, dt) {
+    switch (alarm.unit) {
+        case "seconds": return dt.second;
+        case "minutes": return dt.minute;
+        case "hours":   return dt.hour;
+    }
+}
+
 function startScheduler() {
     setInterval(async () => {
-        const now = Date.now();
+        const now = DateTime.now().setZone(TIMEZONE);
 
         for (const guildId in configs) {
             for (const alarm of configs[guildId]) {
 
-                if (now < alarm.nextTrigger) continue;
+                let unitValue;
+                let slot;
 
-                const intervalMs = getIntervalMs(alarm);
-                alarm.nextTrigger = alarm.nextTrigger + intervalMs;
-                saveConfigs();
+                switch (alarm.unit) {
+                    case "seconds":
+                        unitValue = now.second;
+                        slot = `${now.year}-${now.month}-${now.day} ${now.hour}:${now.minute}:${now.second}`;
+                        break;
 
-                const dt = DateTime.fromMillis(now).setZone(TIMEZONE);
+                    case "minutes":
+                        unitValue = now.minute;
+                        if (now.second !== 0) continue; // 🔒 pile à la minute
+                        slot = `${now.year}-${now.month}-${now.day} ${now.hour}:${now.minute}`;
+                        break;
 
-                if (
-                    alarm.parity === "even" && dt.hour % 2 !== 0 ||
-                    alarm.parity === "odd" && dt.hour % 2 !== 1
-                ) {
-                    continue;
+                    case "hours":
+                        unitValue = now.hour;
+                        if (now.minute !== 0 || now.second !== 0) continue; // 🔒 pile à l’heure
+                        slot = `${now.year}-${now.month}-${now.day} ${now.hour}`;
+                        break;
                 }
 
+                // ===== INTERVALLE =====
+                if (unitValue % alarm.value !== 0) continue;
+
+                // ===== PARITÉ =====
+                const parityOk =
+                    alarm.parity === "any" ||
+                    (alarm.parity === "even" && unitValue % 2 === 0) ||
+                    (alarm.parity === "odd" && unitValue % 2 === 1);
+
+                if (!parityOk) continue;
+
+                // ===== ANTI-SPAM =====
+                if (alarm.lastSlot === slot) continue;
+                alarm.lastSlot = slot;
+                saveConfigs();
+
+                // ===== ENVOI =====
                 try {
                     const channel = await client.channels.fetch(alarm.channelId);
                     if (channel?.isTextBased()) {
@@ -252,6 +283,19 @@ function startScheduler() {
         }
     }, 1000);
 }
+
+
+function getTimeSlot(alarm, dt) {
+    switch (alarm.unit) {
+        case "seconds":
+            return `${dt.year}-${dt.month}-${dt.day} ${dt.hour}:${dt.minute}:${dt.second}`;
+        case "minutes":
+            return `${dt.year}-${dt.month}-${dt.day} ${dt.hour}:${dt.minute}`;
+        case "hours":
+            return `${dt.year}-${dt.month}-${dt.day} ${dt.hour}`;
+    }
+}
+
 
 // ================= UTILS =================
 function getIntervalMs(alarm) {
