@@ -34,7 +34,6 @@ const commands = [
         .setName("setup")
         .setDescription("Créer une alarme")
 
-        // ===== REQUIRED D'ABORD =====
         .addIntegerOption(o =>
             o.setName("value")
                 .setDescription("Valeur de l'intervalle")
@@ -62,7 +61,6 @@ const commands = [
                 .setRequired(true)
         )
 
-        // ===== OPTIONAL À LA FIN =====
         .addStringOption(o =>
             o.setName("parity")
                 .setDescription("Pair / impair (optionnel)")
@@ -127,27 +125,23 @@ const commands = [
         .setDescription("Lister les alarmes")
 ].map(c => c.toJSON());
 
-// ================= REGISTER COMMANDS =================
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 (async () => {
     await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
     console.log("✅ Slash commands enregistrées");
 })();
 
-// ================= READY =================
 client.once("ready", () => {
     console.log(`🤖 Connecté en tant que ${client.user.tag}`);
     startScheduler();
 });
 
-// ================= INTERACTIONS =================
 client.on("interactionCreate", async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
     const guildId = interaction.guildId;
     if (!configs[guildId]) configs[guildId] = [];
 
-    // ===== SETUP =====
     if (interaction.commandName === "setup") {
         const alarms = configs[guildId];
         const newId = alarms.length ? Math.max(...alarms.map(a => a.id)) + 1 : 1;
@@ -169,7 +163,6 @@ client.on("interactionCreate", async interaction => {
         return interaction.reply({ content: `✅ Alarme créée (ID ${newId})`, ephemeral: true });
     }
 
-    // ===== EDIT =====
     if (interaction.commandName === "edit") {
         const id = interaction.options.getInteger("id");
         const alarm = configs[guildId].find(a => a.id === id);
@@ -185,7 +178,6 @@ client.on("interactionCreate", async interaction => {
         return interaction.reply({ content: `✏️ Alarme ${id} modifiée`, ephemeral: true });
     }
 
-    // ===== DELETE =====
     if (interaction.commandName === "delete") {
         const id = interaction.options.getInteger("id");
         const index = configs[guildId].findIndex(a => a.id === id);
@@ -196,7 +188,6 @@ client.on("interactionCreate", async interaction => {
         return interaction.reply({ content: `🗑️ Alarme ${id} supprimée`, ephemeral: true });
     }
 
-    // ===== LIST =====
     if (interaction.commandName === "list") {
         if (!configs[guildId].length) {
             return interaction.reply({ content: "❌ Aucune alarme", ephemeral: true });
@@ -251,10 +242,8 @@ function startScheduler() {
                         break;
                 }
 
-                // ===== INTERVALLE =====
                 if (unitValue % alarm.value !== 0) continue;
 
-                // ===== PARITÉ =====
                 const parityOk =
                     alarm.parity === "any" ||
                     (alarm.parity === "even" && unitValue % 2 === 0) ||
@@ -262,12 +251,10 @@ function startScheduler() {
 
                 if (!parityOk) continue;
 
-                // ===== ANTI-SPAM =====
                 if (alarm.lastSlot === slot) continue;
                 alarm.lastSlot = slot;
                 saveConfigs();
 
-                // ===== ENVOI =====
                 try {
                     const channel = await client.channels.fetch(alarm.channelId);
                     if (channel?.isTextBased()) {
@@ -297,7 +284,6 @@ function getTimeSlot(alarm, dt) {
 }
 
 
-// ================= UTILS =================
 function getIntervalMs(alarm) {
     switch (alarm.unit) {
         case "seconds": return alarm.value * 1000;
@@ -306,5 +292,4 @@ function getIntervalMs(alarm) {
     }
 }
 
-// ================= LOGIN =================
 client.login(TOKEN);
